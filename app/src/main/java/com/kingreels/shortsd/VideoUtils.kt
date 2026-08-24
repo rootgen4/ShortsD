@@ -3,6 +3,7 @@ package com.kingreels.shortsd
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import com.kingreels.shortsd.VideoUtils
 
 object VideoUtils {
 
