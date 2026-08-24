@@ -102,7 +102,8 @@ class MainActivity : AppCompatActivity() {
         if (videoList.isNotEmpty()) {
             emptyStateLayout.visibility = LinearLayout.GONE
             viewPager.visibility = ViewPager2.VISIBLE
-            // Next step mein hum yahan Adapter attach karenge
+                        viewPager.orientation = ViewPager2.ORIENTATION_VERTICAL
+            viewPager.adapter = ReelsAdapter(this, videoList)
         } else {
             emptyStateLayout.visibility = LinearLayout.VISIBLE
             viewPager.visibility = ViewPager2.GONE
