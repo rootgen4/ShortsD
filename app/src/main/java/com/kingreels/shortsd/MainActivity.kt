@@ -8,6 +8,7 @@ import android.widget.Button
 import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 
 class MainActivity : AppCompatActivity() {
@@ -23,7 +24,6 @@ class MainActivity : AppCompatActivity() {
             if (result.resultCode == RESULT_OK) {
                 val treeUri = result.data?.data ?: return@registerForActivityResult
 
-                // Permanent permission taake dubara select na karna pare
                 contentResolver.takePersistableUriPermission(
                     treeUri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
@@ -46,7 +46,6 @@ class MainActivity : AppCompatActivity() {
             openFolderPicker()
         }
 
-        // Agar pehle se folder saved hai to seedha load kar do
         val savedUri = getSavedFolderUri()
         if (savedUri != null) {
             loadVideosFromFolder(savedUri)
@@ -102,11 +101,49 @@ class MainActivity : AppCompatActivity() {
         if (videoList.isNotEmpty()) {
             emptyStateLayout.visibility = LinearLayout.GONE
             viewPager.visibility = ViewPager2.VISIBLE
-                        viewPager.orientation = ViewPager2.ORIENTATION_VERTICAL
+
+            viewPager.orientation = ViewPager2.ORIENTATION_VERTICAL
+
+            // Agle aur pichle 2 pages ke players pehle se taiyar (preload/buffer) rahenge
+            viewPager.offscreenPageLimit = 2
+
             viewPager.adapter = ReelsAdapter(this, videoList)
+
+            setupPageChangeCallback()
+
+            // Pehla video manually play karo (onPageSelected pehli dafa fire nahi hota)
+            viewPager.post {
+                playVisiblePage(viewPager.currentItem)
+            }
         } else {
             emptyStateLayout.visibility = LinearLayout.VISIBLE
             viewPager.visibility = ViewPager2.GONE
+        }
+    }
+
+    private fun setupPageChangeCallback() {
+        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
+            override fun onPageSelected(position: Int) {
+                super.onPageSelected(position)
+                playVisiblePage(position)
+            }
+        })
+    }
+
+    // Current page play karo, baqi sab (preloaded) pause rakho
+    private fun playVisiblePage(selectedPosition: Int) {
+        val recyclerView = viewPager.getChildAt(0) as? RecyclerView ?: return
+
+        for (i in 0 until recyclerView.childCount) {
+            val child = recyclerView.getChildAt(i)
+            val childPosition = recyclerView.getChildAdapterPosition(child)
+            val holder = recyclerView.getChildViewHolder(child) as? ReelsAdapter.ReelViewHolder
+
+            if (childPosition == selectedPosition) {
+                holder?.play()
+            } else {
+                holder?.pause()
+            }
         }
     }
 }
