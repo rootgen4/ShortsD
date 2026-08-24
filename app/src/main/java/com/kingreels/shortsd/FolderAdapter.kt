@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.kingreels.shortsd.VideoUtils
 
 class FolderAdapter(
     private val context: Context,
