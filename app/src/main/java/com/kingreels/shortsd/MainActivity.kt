@@ -3,34 +3,34 @@ package com.kingreels.shortsd
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
-import android.provider.DocumentsContract
 import android.widget.Button
 import android.widget.LinearLayout
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.Toolbar
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import androidx.viewpager2.widget.ViewPager2
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var viewPager: ViewPager2
+    private lateinit var toolbar: Toolbar
+    private lateinit var recyclerView: RecyclerView
     private lateinit var emptyStateLayout: LinearLayout
-    private lateinit var btnSelectFolder: Button
+    private lateinit var btnAddFolder: Button
 
-    private val videoList = mutableListOf<Uri>()
+    private val folderList = mutableListOf<Uri>()
+    private lateinit var folderAdapter: FolderAdapter
 
     private val folderPickerLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
             if (result.resultCode == RESULT_OK) {
                 val treeUri = result.data?.data ?: return@registerForActivityResult
-
                 contentResolver.takePersistableUriPermission(
                     treeUri,
                     Intent.FLAG_GRANT_READ_URI_PERMISSION
                 )
-
-                saveFolderUri(treeUri)
-                loadVideosFromFolder(treeUri)
+                addFolder(treeUri)
+                refreshFolderList()
             }
         }
 
@@ -38,18 +38,33 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        viewPager = findViewById(R.id.viewPager)
-        emptyStateLayout = findViewById(R.id.emptyStateLayout)
-        btnSelectFolder = findViewById(R.id.btnSelectFolder)
+        toolbar = findViewById(R.id.toolbar)
+        setSupportActionBar(toolbar)
 
-        btnSelectFolder.setOnClickListener {
+        recyclerView = findViewById(R.id.recyclerView)
+        emptyStateLayout = findViewById(R.id.emptyStateLayout)
+        btnAddFolder = findViewById(R.id.btnAddFolder)
+
+        recyclerView.layoutManager = LinearLayoutManager(this)
+        folderAdapter = FolderAdapter(
+            context = this,
+            folders = folderList,
+            onClick = { uri -> openPlaylist(uri) },
+            onRemove = { uri ->
+                removeFolder(uri)
+                refreshFolderList()
+            }
+        )
+        recyclerView.adapter = folderAdapter
+
+        btnAddFolder.setOnClickListener {
             openFolderPicker()
         }
+    }
 
-        val savedUri = getSavedFolderUri()
-        if (savedUri != null) {
-            loadVideosFromFolder(savedUri)
-        }
+    override fun onResume() {
+        super.onResume()
+        refreshFolderList()
     }
 
     private fun openFolderPicker() {
@@ -57,93 +72,43 @@ class MainActivity : AppCompatActivity() {
         folderPickerLauncher.launch(intent)
     }
 
-    private fun saveFolderUri(uri: Uri) {
-        getSharedPreferences("shortsd_prefs", MODE_PRIVATE)
-            .edit()
-            .putString("folder_uri", uri.toString())
-            .apply()
+    private fun openPlaylist(uri: Uri) {
+        val intent = Intent(this, PlaylistActivity::class.java)
+        intent.putExtra("folder_uri", uri.toString())
+        startActivity(intent)
     }
 
-    private fun getSavedFolderUri(): Uri? {
-        val uriString = getSharedPreferences("shortsd_prefs", MODE_PRIVATE)
-            .getString("folder_uri", null) ?: return null
-        return Uri.parse(uriString)
+    private fun addFolder(uri: Uri) {
+        val prefs = getSharedPreferences("shortsd_prefs", MODE_PRIVATE)
+        val current = prefs.getStringSet("folder_uris", emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(uri.toString())
+        prefs.edit().putStringSet("folder_uris", current).apply()
     }
 
-    private fun loadVideosFromFolder(treeUri: Uri) {
-        videoList.clear()
+    private fun removeFolder(uri: Uri) {
+        val prefs = getSharedPreferences("shortsd_prefs", MODE_PRIVATE)
+        val current = prefs.getStringSet("folder_uris", emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.remove(uri.toString())
+        prefs.edit().putStringSet("folder_uris", current).apply()
+    }
 
-        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
-            treeUri,
-            DocumentsContract.getTreeDocumentId(treeUri)
-        )
+    private fun getSavedFolders(): List<Uri> {
+        val prefs = getSharedPreferences("shortsd_prefs", MODE_PRIVATE)
+        val stored = prefs.getStringSet("folder_uris", emptySet()) ?: emptySet()
+        return stored.map { Uri.parse(it) }
+    }
 
-        val projection = arrayOf(
-            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
-            DocumentsContract.Document.COLUMN_MIME_TYPE
-        )
+    private fun refreshFolderList() {
+        folderList.clear()
+        folderList.addAll(getSavedFolders())
+        folderAdapter.notifyDataSetChanged()
 
-        contentResolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
-            val idIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
-            val mimeIndex = cursor.getColumnIndexOrThrow(DocumentsContract.Document.COLUMN_MIME_TYPE)
-
-            while (cursor.moveToNext()) {
-                val docId = cursor.getString(idIndex)
-                val mime = cursor.getString(mimeIndex)
-
-                if (mime != null && mime.startsWith("video/")) {
-                    val docUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, docId)
-                    videoList.add(docUri)
-                }
-            }
-        }
-
-        if (videoList.isNotEmpty()) {
-            emptyStateLayout.visibility = LinearLayout.GONE
-            viewPager.visibility = ViewPager2.VISIBLE
-
-            viewPager.orientation = ViewPager2.ORIENTATION_VERTICAL
-
-            // Agle aur pichle 2 pages ke players pehle se taiyar (preload/buffer) rahenge
-            viewPager.offscreenPageLimit = 2
-
-            viewPager.adapter = ReelsAdapter(this, videoList)
-
-            setupPageChangeCallback()
-
-            // Pehla video manually play karo (onPageSelected pehli dafa fire nahi hota)
-            viewPager.post {
-                playVisiblePage(viewPager.currentItem)
-            }
-        } else {
+        if (folderList.isEmpty()) {
             emptyStateLayout.visibility = LinearLayout.VISIBLE
-            viewPager.visibility = ViewPager2.GONE
-        }
-    }
-
-    private fun setupPageChangeCallback() {
-        viewPager.registerOnPageChangeCallback(object : ViewPager2.OnPageChangeCallback() {
-            override fun onPageSelected(position: Int) {
-                super.onPageSelected(position)
-                playVisiblePage(position)
-            }
-        })
-    }
-
-    // Current page play karo, baqi sab (preloaded) pause rakho
-    private fun playVisiblePage(selectedPosition: Int) {
-        val recyclerView = viewPager.getChildAt(0) as? RecyclerView ?: return
-
-        for (i in 0 until recyclerView.childCount) {
-            val child = recyclerView.getChildAt(i)
-            val childPosition = recyclerView.getChildAdapterPosition(child)
-            val holder = recyclerView.getChildViewHolder(child) as? ReelsAdapter.ReelViewHolder
-
-            if (childPosition == selectedPosition) {
-                holder?.play()
-            } else {
-                holder?.pause()
-            }
+            recyclerView.visibility = RecyclerView.GONE
+        } else {
+            emptyStateLayout.visibility = LinearLayout.GONE
+            recyclerView.visibility = RecyclerView.VISIBLE
         }
     }
 }
