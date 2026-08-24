@@ -6,6 +6,7 @@ import android.os.Looper
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.ViewGroup
+import android.widget.ProgressBar
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
@@ -22,11 +23,13 @@ class ReelsAdapter(
         RecyclerView.ViewHolder(itemView) {
 
         val playerView: PlayerView = itemView.findViewById(R.id.playerView)
+        val progressBar: ProgressBar = itemView.findViewById(R.id.progressBar)
         var exoPlayer: ExoPlayer? = null
 
         private val handler = Handler(Looper.getMainLooper())
         private var isHolding = false
         private var longPressRunnable: Runnable? = null
+        private var progressRunnable: Runnable? = null
 
         fun bind(uri: Uri) {
             exoPlayer = ExoPlayer.Builder(context).build().also { player ->
@@ -38,7 +41,24 @@ class ReelsAdapter(
                 player.playWhenReady = true
             }
 
+            startProgressUpdates()
             setupTouchControl()
+        }
+
+        private fun startProgressUpdates() {
+            progressRunnable = object : Runnable {
+                override fun run() {
+                    exoPlayer?.let { player ->
+                        val duration = player.duration
+                        if (duration > 0) {
+                            val progress = (player.currentPosition * 1000 / duration).toInt()
+                            progressBar.progress = progress
+                        }
+                    }
+                    handler.postDelayed(this, 100)
+                }
+            }
+            handler.post(progressRunnable!!)
         }
 
         private fun setupTouchControl() {
@@ -74,6 +94,7 @@ class ReelsAdapter(
         }
 
         fun releasePlayer() {
+            progressRunnable?.let { handler.removeCallbacks(it) }
             exoPlayer?.release()
             exoPlayer = null
         }
